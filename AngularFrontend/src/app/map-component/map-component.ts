@@ -38,6 +38,7 @@ export class MapComponent implements OnInit {
 
   onMapReady(map: L.Map) {
     this.map = map;
+    this.station_marker_group.addTo(this.map);
   }
   ngOnInit(): void {
     
@@ -48,8 +49,9 @@ export class MapComponent implements OnInit {
       if(stations && this.map) {
         this.station_marker_group.clearLayers();
         stations.forEach(station => {
-          const marker = L.marker([station.StaticStationData.latitude, station.StaticStationData.longitude]).addTo(this.station_marker_group)
+          const marker = L.marker([station.StaticStationData.latitude, station.StaticStationData.longitude],{draggable: true}).addTo(this.station_marker_group)
           this.station_marker_map.set(station.StaticStationData.id, marker);
+          marker.dragging?.disable();
         });
       }
     });
@@ -57,7 +59,7 @@ export class MapComponent implements OnInit {
       const editing_station = this._static_data_editing_service.editing_station();
       if(editing_station && this.map) {
         const marker = this.station_marker_map.get(editing_station.StaticStationData.id);
-        if(marker) {
+        if(marker && marker.dragging) {
           marker.on("drag", () => {
             const latlng = marker.getLatLng();
             editing_station.StaticStationData.latitude = latlng.lat;
