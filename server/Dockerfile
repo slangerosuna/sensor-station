@@ -8,9 +8,6 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release
-
 COPY src ./src
 RUN cargo build --release
 
@@ -22,7 +19,7 @@ RUN apt-get update && apt-get install -y \
   ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=rust_builder /backend/target/release/backend /backend/rust-server
+COPY --from=rust_builder /backend/target/release/server /backend/rust-server
 # COPY --from=flutter_builder /frontend/build/web /frontend
 
 EXPOSE 80

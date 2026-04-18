@@ -5,7 +5,6 @@ pub struct Config {
     pub database_url: String,
     pub addr: SocketAddr,
     pub static_files_dir: String,
-    pub sensor_uri: String,
 }
 
 impl Config {
@@ -20,13 +19,10 @@ impl Config {
 
         let static_files_dir = std::env::var("STATIC_FILES_DIR")?;
 
-        let sensor_uri = std::env::var("SENSOR_URI")?;
-
         Ok(Self {
             database_url,
             addr,
             static_files_dir,
-            sensor_uri,
         })
     }
 }

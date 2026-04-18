@@ -1,27 +1,17 @@
 use anyhow::Result;
-use axum::{
-    routing::{get, post},
-    Router,
-};
-use std::sync::Arc;
-use rustls::{
-    pki_types::CertificateDer,
-    RootCertStore,
-    ClientConfig,
-};
-use tokio_postgres_rustls::MakeRustlsConnect;
+use axum::Router;
+use rustls::{ClientConfig, RootCertStore, pki_types::CertificateDer};
 use rustls_native_certs::load_native_certs;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio_postgres_rustls::MakeRustlsConnect;
 
+mod api;
 mod config;
 mod sensor;
 
+use api::ApiState;
 use config::Config;
-
-#[derive(Clone)]
-pub struct ApiState {
-    pub db: Arc<tokio_postgres::Client>,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -58,16 +48,13 @@ async fn main() -> Result<()> {
 
     let client = Arc::new(client);
 
-    let state = ApiState { db: client.clone() };
+    let state = ApiState::new(client.clone());
 
     let static_files = tower_http::services::ServeDir::new(&config.static_files_dir)
         .append_index_html_on_directories(true);
 
-    let api_router = Router::new()
-        .route("/health", get(|| async { "OK" }));
-
     let router = Router::new()
-        .nest("/api", api_router)
+        .nest("/api", api::routes())
         .fallback_service(static_files)
         .with_state(state);
 
@@ -92,7 +79,7 @@ async fn main() -> Result<()> {
         };
 
         #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>(); 
+        let terminate = std::future::pending::<()>();
 
         tokio::select! {
             _ = ctrl_c => {},
@@ -105,9 +92,8 @@ async fn main() -> Result<()> {
     };
 
     tokio::join!(
-        axum::serve(listener, router)
-            .with_graceful_shutdown(shutdown_signal),
-        sensor::handle_sensor_data(client, rx, config.sensor_uri),
+        axum::serve(listener, router).with_graceful_shutdown(shutdown_signal),
+        sensor::handle_sensor_data(client, rx),
     );
 
     Ok(())
