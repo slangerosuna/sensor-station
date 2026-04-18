@@ -2,10 +2,11 @@ import { Component, input, signal } from '@angular/core';
 import { Station } from '../../station-service';
 import { StationDisplayStaticDetails } from '../station-display-tabs/station-display-static-details/station-display-static-details';
 import { StationDisplayEditDetails } from '../station-display-tabs/station-display-edit-details/station-display-edit-details';
+import { StationDisplayData } from '../station-display-tabs/station-display-data/station-display-data';
 
 @Component({
   selector: 'app-station-display-details',
-  imports: [StationDisplayStaticDetails,StationDisplayEditDetails],
+  imports: [StationDisplayStaticDetails,StationDisplayEditDetails,StationDisplayData],
   templateUrl: './station-display-details.html',
   styleUrl: './station-display-details.css',
 })
