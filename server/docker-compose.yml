@@ -25,9 +25,11 @@ services:
 
   rust-server:
     restart: unless-stopped
+    group_add:
+      - dialout
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: server/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-iot4ag-db}?sslmode=prefer
       SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
@@ -38,6 +40,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - app-network
 

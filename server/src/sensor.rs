@@ -1,6 +1,139 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use chrono::{DateTime, Timelike, Utc};
+use reqwest::header::{ACCEPT, USER_AGENT};
 use std::sync::Arc;
 use tokio_postgres::Client;
+
+#[derive(serde::Deserialize)]
+struct NwsPointsResponse {
+    properties: NwsPointsProperties,
+}
+
+#[derive(serde::Deserialize)]
+struct NwsPointsProperties {
+    #[serde(rename = "forecastGridData")]
+    forecast_grid_data: String,
+}
+
+#[derive(serde::Deserialize)]
+struct NwsGridResponse {
+    properties: NwsGridProperties,
+}
+
+#[derive(serde::Deserialize)]
+struct NwsGridProperties {
+    #[serde(rename = "windSpeed")]
+    wind_speed: NwsSeries,
+    #[serde(rename = "skyCover")]
+    sky_cover: NwsSeries,
+}
+
+#[derive(serde::Deserialize)]
+struct NwsSeries {
+    uom: String,
+    values: Vec<NwsValue>,
+}
+
+#[derive(serde::Deserialize)]
+struct NwsValue {
+    #[serde(rename = "validTime")]
+    valid_time: String,
+    value: Option<f64>,
+}
+
+fn parse_valid_time_start(valid_time: &str) -> Option<DateTime<Utc>> {
+    let start = valid_time.split('/').next()?;
+    let parsed = DateTime::parse_from_rfc3339(start).ok()?;
+    Some(parsed.with_timezone(&Utc))
+}
+
+fn pick_latest_or_current_value(values: &[NwsValue]) -> Option<f64> {
+    let now = Utc::now();
+
+    let latest_before_or_at_now = values
+        .iter()
+        .filter_map(|entry| {
+            let value = entry.value?;
+            let start = parse_valid_time_start(&entry.valid_time)?;
+            if start <= now {
+                Some((start, value))
+            } else {
+                None
+            }
+        })
+        .max_by_key(|(start, _)| *start)
+        .map(|(_, value)| value);
+
+    latest_before_or_at_now.or_else(|| values.iter().find_map(|entry| entry.value))
+}
+
+fn convert_wind_speed_to_mps(value: f64, uom: &str) -> f64 {
+    if uom.contains("km_h-1") {
+        value / 3.6
+    } else if uom.contains("m_s-1") {
+        value
+    } else if uom.contains("kn") {
+        value * 0.514_444
+    } else {
+        value
+    }
+}
+
+fn estimate_net_irradiance_from_sky_cover(sky_cover_percent: f64, longitude: f64) -> f64 {
+    let utc_now = Utc::now();
+    let approx_tz_offset_hours = (longitude / 15.0).round() as i64;
+    let local_hour = ((utc_now.hour() as i64 + approx_tz_offset_hours).rem_euclid(24)) as f64;
+
+    let daylight_factor = if (6.0..=18.0).contains(&local_hour) {
+        let x = (local_hour - 6.0) / 12.0;
+        (std::f64::consts::PI * x).sin().max(0.0)
+    } else {
+        0.0
+    };
+
+    let normalized_sky_cover = (sky_cover_percent / 100.0).clamp(0.0, 1.0);
+    let cloud_factor = (1.0 - 0.75 * normalized_sky_cover.powi(3)).clamp(0.15, 1.0);
+
+    1000.0 * daylight_factor * cloud_factor
+}
+
+async fn fetch_weather_from_nws(latitude: f64, longitude: f64) -> Result<(f64, f64)> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    let points_url = format!("https://api.weather.gov/points/{latitude},{longitude}");
+
+    let points = client
+        .get(points_url)
+        .header(ACCEPT, "application/geo+json")
+        .header(USER_AGENT, "sensor-station/0.1 (hackathon project)")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<NwsPointsResponse>()
+        .await?;
+
+    let grid = client
+        .get(points.properties.forecast_grid_data)
+        .header(ACCEPT, "application/geo+json")
+        .header(USER_AGENT, "sensor-station/0.1 (hackathon project)")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<NwsGridResponse>()
+        .await?;
+
+    let wind_raw = pick_latest_or_current_value(&grid.properties.wind_speed.values)
+        .ok_or_else(|| anyhow!("NWS grid response missing windSpeed values"))?;
+    let wind_speed_mps = convert_wind_speed_to_mps(wind_raw, &grid.properties.wind_speed.uom);
+
+    let sky_cover = pick_latest_or_current_value(&grid.properties.sky_cover.values)
+        .ok_or_else(|| anyhow!("NWS grid response missing skyCover values"))?;
+    let net_irradiance = estimate_net_irradiance_from_sky_cover(sky_cover, longitude);
+
+    Ok((net_irradiance, wind_speed_mps))
+}
 
 // kg/m^2/s
 fn penman_equation(
@@ -91,37 +224,51 @@ fn penman_equation(
             * (derivative_of_saturation_vapor_pressure_pascals_per_kelvin + psychometric_constant))
 }
 
+use tokio::sync::Mutex;
+
 pub async fn handle_sensor_data(
     db: Arc<Client>,
+    most_recent_image: Arc<Mutex<Vec<f32>>>,
     rx: tokio::sync::oneshot::Receiver<()>,
 ) {
     let mut process_sensor_data = async move || {
-        let mut f = async move || -> anyhow::Result<()> {
-            let mut device_handler = tokio_serial::new("/dev/ttyUSB0", 9600).open_native()?;
-            println!("Connected to sensor device at /dev/ttyUSB0");
+        let mut f = async move || -> Result<()> {
+            use tokio::net::TcpStream;
+            use tokio::io::AsyncReadExt;
+
+            println!("Connecting to sensor at host.docker.internal:12347...");
+            let mut stream = TcpStream::connect("127.17.0.1:12347").await?;
+            println!("Connected to sensor at host.docker.internal:12347");
 
             loop {
-                use std::io::Read;
                 let mut header = [0u8; 4];
 
-                device_handler.read_exact(&mut header)?;
+                stream.read_exact(&mut header).await?;
                 let len = u32::from_le_bytes(header) as usize;
                 let mut buf = vec![0u8; len - 4];
 
-                device_handler.read_exact(&mut buf)?;
+                stream.read_exact(&mut buf).await?;
+
+                println!("Received sensor data packet of length {len} bytes");
 
                 let timestamp = f32::from_le_bytes(buf[0..4].try_into().unwrap());
 
                 let co2 = f32::from_le_bytes(buf[4..8].try_into().unwrap());
                 let air_temperature = f32::from_le_bytes(buf[8..12].try_into().unwrap());
                 let air_pressure = f32::from_le_bytes(buf[12..16].try_into().unwrap());
-                let estimated_altitude = f32::from_le_bytes(buf[16..20].try_into().unwrap());
+                let _estimated_altitude = f32::from_le_bytes(buf[16..20].try_into().unwrap());
                 let humidity = f32::from_le_bytes(buf[20..24].try_into().unwrap());
 
                 let thermal_camera_data: Vec<f32> = buf[24..]
                     .chunks_exact(4)
                     .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
                     .collect();
+
+                let mut guard = most_recent_image.lock().await;
+
+                guard.clone_from(&thermal_camera_data);
+
+                drop(guard);
 
                 let row = db.query_one("
                     SELECT
@@ -130,7 +277,8 @@ pub async fn handle_sensor_data(
                         land_bitmap,
                         ST_Y(location::geometry) as latitude,
                         ST_X(location::geometry) as longitude,
-                    FROM sensor_stations
+                        boot_timestamp
+                    FROM stations
                     WHERE id = 1
                 ", &[]).await?;
 
@@ -145,6 +293,9 @@ pub async fn handle_sensor_data(
 
                 let latitude: f64 = row.get(3);
                 let longitude: f64 = row.get(4);
+
+                let boot_timestamp: f32 = row.get(5);
+                let timestamp = boot_timestamp + timestamp;
 
                 fn find_average_temperature_over_selected_area(
                     thermal_camera_data: &[f32],
@@ -170,10 +321,14 @@ pub async fn handle_sensor_data(
                 let water_temperature = find_average_temperature_over_selected_area(&thermal_camera_data, &water_bitmap);
                 let ground_temperature = find_average_temperature_over_selected_area(&thermal_camera_data, &land_bitmap);
 
-                // get wind and radiance data from the National Weather Service API
-                // using https://www.weather.gov/documentation/services-web-api
-                let net_irradiance = 800.0; // W/m^2 - placeholder value, should be fetched from API
-                let wind_speed = 5.0; // m/s - placeholder value, should be fetched from API
+                // Pull weather from NWS using station location. If unavailable, keep pipeline alive.
+                let (net_irradiance, wind_speed) = match fetch_weather_from_nws(latitude, longitude).await {
+                    Ok((irradiance, wind)) => (irradiance, wind),
+                    Err(err) => {
+                        eprintln!("NWS API fetch failed, using fallback values: {err}");
+                        (800.0, 5.0)
+                    }
+                };
 
                 let rate_of_evaporation = penman_equation(
                     net_irradiance,
@@ -211,6 +366,8 @@ pub async fn handle_sensor_data(
                     &net_irradiance,
                     &rate_of_evaporation,
                 ]).await?;
+
+                println!("Inserted sensor data into database with timestamp {timestamp}");
             }
         };
 

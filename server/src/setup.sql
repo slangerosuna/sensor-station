@@ -46,6 +46,6 @@ CREATE TABLE IF NOT EXISTS recordings (
   -- kg m^-2 s^-1
   rate_of_evaporation REAL NOT NULL,
 
-  timestamp TIMESTAMP NOT NULL
+  timestamp TIMESTAMP NOT NULL DEFAULT now()
 );
 
