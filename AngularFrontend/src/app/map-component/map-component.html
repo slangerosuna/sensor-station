@@ -1,0 +1,7 @@
+<div style="height: 300px;"
+     leaflet 
+    [leafletOptions]="options"
+    [leafletBaseLayers]="baseLayers"
+    [leafletLayersControlOptions] = "layer_control_options"
+    (leafletMapReady)="onMapReady($event)">
+</div>
