@@ -1,0 +1,9 @@
+.button_row{
+    display: flex
+}
+.selected-tab{
+    background-color: olive;
+}
+button{
+    font-size: 15pt;
+}

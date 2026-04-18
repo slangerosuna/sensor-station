@@ -1,0 +1,25 @@
+<div>ID: {{ station().StaticStationData.id }}</div>
+<form [formRoot]="static_data_form">
+Name: <input type="text" [formField]="static_data_form.name" label="Name">
+@if(static_data_form.name().invalid()) {
+    @for(error of static_data_form.name().errors(); track error) {
+        <div class="error_box">{{error.message}}</div>
+    }
+}
+<div class="latlong-row">
+  Latitude: <input type="number" class="latlong" [formField]="static_data_form.latitude" label="Latitude">
+  Longitude: <input type="number" class="latlong" [formField]="static_data_form.longitude"  label="Longitude">
+</div>
+@if(static_data_form.longitude().invalid() || static_data_form.latitude().invalid()) {
+    @for(error of static_data_form.latitude().errors(); track error) {
+        <div class="error_box">{{error.message}}</div>
+    }
+    @for(error of static_data_form.longitude().errors(); track error) {
+        <div class="error_box">{{error.message}}</div>
+    }
+}
+<div>Water Speed: <input type="number" [formField]="static_data_form.water_speed" label="Water Speed"></div>
+<div>Soil Moisture: <input type="number" [formField]="static_data_form.soil_moisture" label="Soil Moisture"></div>
+<button type="submit" [disabled]="static_data_form().invalid()||static_data_form().submitting()">{{static_data_form().submitting() ? "Updating" : "Update" }}</button>
+<div class="error-box">{{static_data_form().errors()[0].message}}</div>
+</form>

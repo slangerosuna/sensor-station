@@ -1,0 +1,17 @@
+.summary-card {
+	border: 1px solid var(--border-color);
+	padding: 0.5rem;
+	background: #ffffff;
+	box-shadow: 0 1px 6px rgb(15 23 42 / 8%);
+	cursor: pointer;
+}
+
+.summary-row {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	min-width: 0;
+}
+.health-indicator{
+    height: 1.25em
+}

@@ -1,0 +1,19 @@
+<article
+    class="summary-card"
+    role="button"
+    tabindex="0"
+    [attr.aria-expanded]="expanded()"
+    (click)="toggle()"
+    (keydown)="onSummaryKeydown($event)"
+>
+    <div class="summary-row">
+        <div class="station-name">{{ station().StaticStationData.name }}</div>
+        <div class="station-last-updated">Last Updated: {{ station().lastUpdated }}</div>
+        <svg class="health-indicator" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="40" [attr.fill]="health_status()"/>
+        </svg>
+    </div>
+</article>
+@if(expanded()){
+    <app-station-display-details [station]="station()"></app-station-display-details>
+}

@@ -1,0 +1,20 @@
+<div class="button-row">
+    <button (click)="selected_tab.set('static_details')", [class.selected-tab]="selected_tab()==='static_details'">Details</button>
+    <button (click)="selected_tab.set('edit_details')", [class.selected-tab]="selected_tab()==='edit_details'">Edit Details</button>
+    <button (click)="selected_tab.set('data')", [class.selected-tab]="selected_tab()==='data'">Data</button>
+    <button (click)="selected_tab.set('thermal_imagery_setup')", [class.selected-tab]="selected_tab()==='thermal_imagery_setup'">Thermal Imagery Setup</button>
+</div>
+@switch (selected_tab()) {
+    @case('static_details') {
+        <app-station-display-static-details [station]="station()"></app-station-display-static-details>
+    }
+    @case('edit_details') {
+        <app-station-display-edit-details [station]="station()"></app-station-display-edit-details>
+    }
+    @case('data') {
+        <p>Data coming soon...</p>
+    }
+    @case('thermal_imagery_setup') {
+        <p>Thermal imagery setup coming soon...</p>
+    }
+}

@@ -1,7 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, effect, inject, OnInit } from '@angular/core';
 import { LeafletDirective, LeafletLayersControlDirective, LeafletBaseLayersDirective } from '@bluehalo/ngx-leaflet';
 import * as L from "leaflet";
-import { Control } from 'leaflet';
+import { Control, map } from 'leaflet';
+import { StationService } from '../station-service';
+import { StaticDataEditingService } from '../static-data-editing-service';
 @Component({
   selector: 'app-map-component',
   imports: [LeafletDirective, LeafletBaseLayersDirective, LeafletLayersControlDirective],
@@ -16,19 +18,54 @@ export class MapComponent implements OnInit {
       'Satellite Imagery': this.esri_satellite_layer
   };
   readonly layer_control_options: Control.LayersOptions = {
-
+      
   }
-  options = {
+  readonly options = {
     layers: [
       this.esri_satellite_layer
     ],
     zoom: 13,
     center: L.latLng([ 37.3597657, -120.4267336])
   }; 
+  
+  private readonly _station_service = inject(StationService);
+  private readonly _static_data_editing_service = inject(StaticDataEditingService);
+  
+  private map!: L.Map;
+  private station_marker_group = L.layerGroup();
+
+  private station_marker_map = new Map<number, L.Marker>();
+
   onMapReady(map: L.Map) {
-    
+    this.map = map;
   }
   ngOnInit(): void {
     
+  }
+  constructor(){
+    effect(() => {
+      const stations = this._station_service.stations();
+      if(stations && this.map) {
+        this.station_marker_group.clearLayers();
+        stations.forEach(station => {
+          const marker = L.marker([station.StaticStationData.latitude, station.StaticStationData.longitude]).addTo(this.station_marker_group)
+          this.station_marker_map.set(station.StaticStationData.id, marker);
+        });
+      }
+    });
+    effect(() => {
+      const editing_station = this._static_data_editing_service.editing_station();
+      if(editing_station && this.map) {
+        const marker = this.station_marker_map.get(editing_station.StaticStationData.id);
+        if(marker) {
+          marker.on("drag", () => {
+            const latlng = marker.getLatLng();
+            editing_station.StaticStationData.latitude = latlng.lat;
+            editing_station.StaticStationData.longitude = latlng.lng;
+          });
+          marker.dragging.enable();
+        }
+      }
+    });
   }
 }

@@ -1,0 +1,15 @@
+@for (station of _StationService.stations(); track station.StaticStationData.id) {
+    <app-station-display-summary [station]="station"></app-station-display-summary>
+}
+<!--@if(_StationService.stations.hasValue()){
+
+}
+@else if(_StationService.stations.isLoading()) {
+  <p>Loading stations...</p>
+}
+@if(_StationService.stations.error()!=undefined){
+    @let station_error = _StationService.stations.error();
+    <div class="error_box">
+    Error loading stations: {{station_error?.message}}
+    </div>
+}-->
