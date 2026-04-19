@@ -1,31 +1,34 @@
 #include <SPI.h>
 #include <LoRa.h>
 
-#define LORA_FREQ 915E6
+#define LORA_FREQ      915E6
 #define MAX_PACKET_SIZE 2048
+#define MAX_CHUNKS      32
 
-uint8_t chunkBuffer[256][253];
-uint8_t chunkLengths[256];
-bool chunkReceived[256];
+
+
+uint8_t chunkBuffer[MAX_CHUNKS][253];
+uint8_t chunkLengths[MAX_CHUNKS];
+bool    chunkReceived[MAX_CHUNKS];
 uint8_t totalChunksExpected = 0;
-uint8_t chunksReceived = 0;
+uint8_t chunksReceived      = 0;
 
 void resetChunkState() {
   memset(chunkReceived, 0, sizeof(chunkReceived));
-  memset(chunkLengths, 0, sizeof(chunkLengths));
+  memset(chunkLengths,  0, sizeof(chunkLengths));
   totalChunksExpected = 0;
-  chunksReceived = 0;
+  chunksReceived      = 0;
 }
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
-
   if (!LoRa.begin(LORA_FREQ)) {
     Serial.println("LoRa failed");
     while (1);
   }
   resetChunkState();
+  Serial.println("LoRa receiver ready");
 }
 
 void loop() {
@@ -38,25 +41,31 @@ void loop() {
     raw[len++] = LoRa.read();
   }
 
+  // Need at least chunk header (2 bytes)
   if (len < 2) return;
 
   uint8_t chunkIndex  = raw[0];
   uint8_t totalChunks = raw[1];
   uint8_t* payload    = raw + 2;
-  uint8_t payloadLen  = len - 2;
+  uint8_t  payloadLen = len - 2;
 
+  // Bounds check to protect RAM
+  if (totalChunks == 0 || totalChunks > MAX_CHUNKS) return;
+  if (chunkIndex >= totalChunks)                     return;
+
+  // Reset if this looks like a new transmission
   if (chunksReceived == 0) {
     totalChunksExpected = totalChunks;
   }
-
   if (totalChunks != totalChunksExpected) {
     resetChunkState();
     totalChunksExpected = totalChunks;
   }
 
+  // Store chunk if not already received
   if (!chunkReceived[chunkIndex]) {
     memcpy(chunkBuffer[chunkIndex], payload, payloadLen);
-    chunkLengths[chunkIndex] = payloadLen;
+    chunkLengths[chunkIndex]  = payloadLen;
     chunkReceived[chunkIndex] = true;
     chunksReceived++;
   }
@@ -66,7 +75,6 @@ void loop() {
   // Reassemble full packet
   uint8_t fullPacket[MAX_PACKET_SIZE];
   int fullLen = 0;
-
   for (int i = 0; i < totalChunksExpected; i++) {
     if (!chunkReceived[i]) {
       resetChunkState();
@@ -80,20 +88,22 @@ void loop() {
     fullLen += chunkLengths[i];
   }
 
-  // Validate 4-byte packet header
+  // Need at least 4-byte header
   if (fullLen < 4) {
     resetChunkState();
     return;
   }
 
-  uint16_t msgLength = (uint16_t)fullPacket[2] | ((uint16_t)fullPacket[3] << 8);
 
+  // Validate message length
+  uint16_t msgLength = (uint16_t)fullPacket[2] | ((uint16_t)fullPacket[3] << 8);
   if (msgLength != fullLen - 4) {
+    Serial.println("Length mismatch");
     resetChunkState();
     return;
   }
 
-  // Send to Python: 2-byte length prefix + full packet
+  // Send to Python: 2-byte little-endian length prefix + full packet
   Serial.write((uint8_t*)&fullLen, 2);
   Serial.write(fullPacket, fullLen);
 
