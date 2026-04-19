@@ -1,0 +1,28 @@
+<p-button label="Refresh" (click)="get_thermal_image()"></p-button>
+<svg class="overlay" viewBox="0 0 32 24" preserveAspectRatio="none">
+      @for (px of pixels(); track $index) {
+        <rect
+          [attr.x]="px.x"
+          [attr.y]="px.y"
+          width="1"
+          height="1"
+          [attr.fill]="convert_temperature_to_color(px.temperature)"
+          class="cell"
+          (click)="selectPixel(px)"
+        />
+        <rect
+          [attr.x]="px.x"
+          [attr.y]="px.y"
+          width="1"
+          height="1"
+          [attr.fill]="get_overlay_color(px)"
+          class="cell"
+          (click)="selectPixel(px)"
+        />
+      }
+    </svg>
+<div style="display: flex">
+    <p-button label="None" (click)="water_ground_selected.set('none')"></p-button>
+    <p-button label="Ground" (click)="water_ground_selected.set('ground')"></p-button>
+    <p-button label="Water" (click)="water_ground_selected.set('water')"></p-button>
+</div>

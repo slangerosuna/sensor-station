@@ -7,11 +7,11 @@ import { exhaustMap, Observable, Subject, switchMap, tap } from 'rxjs';
 })
 export class StationService {
   server_url: Signal<string> = signal('http://localhost:8080');
-  private readonly stationSubject$ = new Subject();
+  readonly stationSubject$ = new Subject();
   private readonly _http = inject(HttpClient);
 
   /*readonly stations = httpResource<Station[]|null>(() => ({
-    url: `${this.server_url()}/api/stations`,
+    url: `${this.server_url()}/stations`,
     method: 'GET',
     initialValue: null,
     reloadOn: this.stationSubject$
@@ -22,7 +22,7 @@ export class StationService {
     name: "Station 1",
     latitude: 37.3597657,
     longitude: -120.4267336,
-    water_speed: 0,
+    water_depth: 0,
     soil_moisture: 0
   }} as Station]);
 
@@ -40,7 +40,7 @@ export type StaticStationData = {
   name: string;
   latitude: number;
   longitude: number;
-  water_speed: number;
+  water_depth: number;
   soil_moisture: number;
 }
 

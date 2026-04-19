@@ -23,7 +23,7 @@ export class StaticDataEditingService {
           name: "",
           latitude: 0,
           longitude: 0,
-          water_speed: 0,
+          water_depth: 0,
           soil_moisture: 0,
         }
       } as Station;
@@ -32,7 +32,7 @@ export class StaticDataEditingService {
   async submit(): Promise<TreeValidationResult> {
     if(this.editing_station()){
       try {
-        await firstValueFrom(this._http.post("/api/update_station_static_data", this.editing_station()?.StaticStationData, { responseType: 'text' }));
+        await firstValueFrom(this._http.post("/station", this.editing_station()?.StaticStationData, { responseType: 'text' }));
         const stations = this._station_service.stations();
         if (stations) {
           this._station_service.stations.set(stations.map(station => {

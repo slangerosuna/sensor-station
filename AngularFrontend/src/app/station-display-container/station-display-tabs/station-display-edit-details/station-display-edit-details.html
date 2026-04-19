@@ -18,7 +18,7 @@ Name: <input type="text" [formField]="static_data_form.StaticStationData.name" l
         <div class="error_box">{{error.message}}</div>
     }
 }
-<div>Water Speed: <input type="number" [formField]="static_data_form.StaticStationData.water_speed" label="Water Speed"></div>
+<div>Water Depth: <input type="number" [formField]="static_data_form.StaticStationData.water_depth" label="Water Depth"></div>
 <div>Soil Moisture: <input type="number" [formField]="static_data_form.StaticStationData.soil_moisture" label="Soil Moisture"></div>
 <button type="submit" [disabled]="static_data_form().invalid()||static_data_form().submitting()">{{static_data_form().submitting() ? "Updating" : "Update" }}</button>
 <div class="error-box">{{static_data_form().errors()[0]?.message}}</div>

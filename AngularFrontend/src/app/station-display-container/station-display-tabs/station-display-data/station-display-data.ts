@@ -14,12 +14,14 @@ export class StationDisplayData implements OnInit {
   readonly station = input.required<Station>();
   readonly data_options = [
     { label: "Air Temperature", value: "air_temperature" },
-    { label: "Air Humidity", value: "air_humidity" },
-    { label: "Co2 concentration (ppm)", value: "co2_concentration" },
-    { label: "Barometric Pressure", value: "barometric_pressure" },
+    { label: "Air Humidity", value: "humidity" },
+    { label: "Co2 concentration (ppm)", value: "co2" },
+    { label: "Barometric Pressure", value: "pressure" },
     { label: "Ground Temperature", value: "ground_temperature" },
     { label: "Water Temperature", value: "water_temperature" },
-    { label: "Evaporation Rate", value: "evaporation_rate" },
+    { label: "Evaporation Rate", value: "rate_of_evaporation" },
+    { label: "Net Irradiance", value: "net_irradiance" },
+    { label: "Wind Speed", value: "wind_speed" },
   ]
   readonly current_date = new Date();
   selected_data = signal<{ label: string, value: string }[]>([]);
