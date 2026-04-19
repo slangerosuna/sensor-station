@@ -25,19 +25,46 @@ services:
 
   rust-server:
     restart: unless-stopped
+    group_add:
+      - dialout
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: server/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-iot4ag-db}?sslmode=prefer
       SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
       SERVER_PORT: ${SERVER_PORT:-80}
       STATIC_FILES_DIR: ${STATIC_FILES_DIR:-/frontend}
+      SENSOR_HOST: ${SENSOR_HOST:-simulation}
+      SENSOR_PORT: ${SENSOR_PORT:-12347}
     ports:
       - "80:80"
     depends_on:
       postgres:
         condition: service_healthy
+      simulation:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  simulation:
+    build:
+      context: ..
+      dockerfile: sensor_station/Dockerfile
+    expose:
+      - "12347"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 12347)); s.close()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     networks:
       - app-network
 
