@@ -1,14 +1,15 @@
 <div class="input-row">
     <p-multiSelect [options]="data_options" [(ngModel)]="selected_data" optionLabel="label" placeholder="Select Data"></p-multiSelect>
     <label for="start-time"> Start Time </label>
-    <div style="flex:auto">
+    <div style="display: flex">
         <p-datepicker inputId="start-time" [(ngModel)]="start_datetime" [showTime]="true" hourFormat='24'  [maxDate]="current_date" />
     </div>
-    <div style="flex:auto">
+    <div style="display:flex">
         <label for="end-time"> End Time </label>
         <p-datepicker inputId="end-time" [(ngModel)]="end_datetime" [showTime]="true" hourFormat='24' [minDate]="start_datetime()" [maxDate]="current_date" />
     </div>
+    <p-button label="Load Data" (click)="init_chart()"></p-button>
 </div>
-<p-chart type="line" [data]="chart_data" [options]="chart_options"></p-chart>
-<!--@if(data_loaded()){
-}-->
+@if(data_loaded()){
+    <p-chart type="line" [data]="chart_data" [options]="chart_options"></p-chart>
+}

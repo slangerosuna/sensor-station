@@ -1,5 +1,7 @@
-<p-button label="Refresh" (click)="get_thermal_image()"></p-button>
-<svg class="overlay" viewBox="0 0 32 24" preserveAspectRatio="none">
+<div style="display: flex">
+    <p-button label="Refresh" (click)="get_thermal_image()"></p-button>
+</div>
+<svg #svgGrid (pointermove)="drag($event)" class="overlay" viewBox="0 0 32 24" preserveAspectRatio="none" class="thermal-grid">
       @for (px of pixels(); track $index) {
         <rect
           [attr.x]="px.x"
@@ -21,8 +23,10 @@
         />
       }
     </svg>
+
 <div style="display: flex">
-    <p-button label="None" (click)="water_ground_selected.set('none')"></p-button>
-    <p-button label="Ground" (click)="water_ground_selected.set('ground')"></p-button>
-    <p-button label="Water" (click)="water_ground_selected.set('water')"></p-button>
+  <p-selectbutton [options]="paintOptions" [(ngModel)]="water_ground_selected" optionValue="value" aria-labelledby="basic"></p-selectbutton>
+</div>
+<div style="display:flex">
+  <p-button label="Save" (click)="save_bitmap()"></p-button>
 </div>

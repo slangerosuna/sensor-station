@@ -1,16 +1,20 @@
-import { Component, input, OnInit, signal } from '@angular/core';
+import { Component, inject, input, OnInit, signal } from '@angular/core';
 import { Station } from '../../../station-service';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { FormsModule } from '@angular/forms';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ChartModule } from 'primeng/chart';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Button } from "primeng/button";
 @Component({
   selector: 'app-station-display-data',
-  imports: [MultiSelectModule, FormsModule, DatePickerModule, ChartModule],
+  imports: [MultiSelectModule, FormsModule, DatePickerModule, ChartModule, Button],
   templateUrl: './station-display-data.html',
   styleUrl: './station-display-data.css',
 })
 export class StationDisplayData implements OnInit {
+  _http = inject(HttpClient);
+  
   readonly station = input.required<Station>();
   readonly data_options = [
     { label: "Air Temperature", value: "air_temperature" },
@@ -31,18 +35,45 @@ export class StationDisplayData implements OnInit {
   chart_data: any;
   chart_options: any;
   ngOnInit(){
-    this.init_chart();
+
   }
   init_chart(){
-    this.chart_data = {
-      labels: [1,2,3,4,5,6,7],
-      datasets: [
-        {
-          label: "Air Temperature",
-          data: [13,14,15,16,20,14,13]
-        }
-      ]
+    let params = new HttpParams()
+      .set('preferred_rows', '200')
+      .set('columns', this.selected_data().map(d => d.value).join(','));
+
+    if (this.start_datetime()) {
+      params = params.set('start', this.start_datetime()!.toISOString());
     }
 
-  } 
+    if (this.end_datetime()) {
+      params = params.set('end', this.end_datetime()!.toISOString());
+    }
+
+    this._http.get<DataReturnValues[]>("api/recordings",{
+      params,
+    }
+    ).subscribe((data) => {
+      this.chart_data = {
+        labels: data.map(d => d.timestamp.toString()),
+        datasets: this.selected_data().map((d, index) => ({
+          label: d.label,
+          data: data.map(row => row[d.value as keyof DataReturnValues]),
+        }))
+      };
+      this.data_loaded.set(true);
+    });
+  }
+}
+export type DataReturnValues = {
+  timestamp: Date;
+  air_temperature?: number;
+  humidity?: number;
+  co2?: number;
+  pressure?: number;
+  ground_temperature?: number;
+  water_temperature?: number;
+  rate_of_evaporation?: number;
+  net_irradiance?: number;
+  wind_speed?: number;
 }
