@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS stations (
   id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
   name VARCHAR(255) NOT NULL UNIQUE,
 
-  water_depth REAL NOT NULL DEFAULT 0.0,
+  water_depth REAL NOT NULL DEFAULT 1.0,
 
   water_bitmap BIT(768) NOT NULL DEFAULT B'0'::bit(768),
   land_bitmap BIT(768) NOT NULL DEFAULT B'0'::bit(768),
@@ -46,6 +46,6 @@ CREATE TABLE IF NOT EXISTS recordings (
   -- kg m^-2 s^-1
   rate_of_evaporation REAL NOT NULL,
 
-  timestamp TIMESTAMP NOT NULL
+  timestamp TIMESTAMP NOT NULL DEFAULT now()
 );
 

@@ -3,7 +3,7 @@ use axum::Router;
 use rustls::{ClientConfig, RootCertStore, pki_types::CertificateDer};
 use rustls_native_certs::load_native_certs;
 use std::sync::Arc;
-use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
 mod api;
@@ -47,8 +47,10 @@ async fn main() -> Result<()> {
     client.batch_execute(include_str!("setup.sql")).await?;
 
     let client = Arc::new(client);
+    let most_recent_image = vec![0.0f32; 768];
+    let most_recent_image = Arc::new(Mutex::new(most_recent_image));
 
-    let state = ApiState::new(client.clone());
+    let state = ApiState::new(client.clone(), most_recent_image.clone());
 
     let static_files = tower_http::services::ServeDir::new(&config.static_files_dir)
         .append_index_html_on_directories(true);
@@ -92,8 +94,8 @@ async fn main() -> Result<()> {
     };
 
     tokio::join!(
-        axum::serve(listener, router).with_graceful_shutdown(shutdown_signal),
-        sensor::handle_sensor_data(client, rx),
+        sensor::handle_sensor_data(client, most_recent_image, rx, config.sensor_addr),
+        axum::serve(listener, router).with_graceful_shutdown(shutdown_signal)
     );
 
     Ok(())
