@@ -94,6 +94,12 @@ void loop() {
     return;
   }
 
+   if (fullPacket[0] != 0xAA || fullPacket[1] != 0x55) {
+    Serial.println("Bad sync marker");
+    resetChunkState();
+    return;
+  }
+
 
   // Validate message length
   uint16_t msgLength = (uint16_t)fullPacket[2] | ((uint16_t)fullPacket[3] << 8);

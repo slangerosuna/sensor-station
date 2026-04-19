@@ -14,6 +14,7 @@ clients      = []
 clients_lock = threading.Lock()
 
 
+
 def broadcast(data: bytes):
     """Send length-prefixed protobuf to all TCP clients (matches sim format)."""
     # Wrap in 4-byte header: int32 length + payload
@@ -52,8 +53,10 @@ def serial_reader(ser: serial.Serial):
 
             full_packet = read_exact(ser, pkt_len)
 
-            
-
+            if full_packet[0] != 0xAA or full_packet[1] != 0x55:
+                print(f"[WARN] Bad sync marker: {full_packet[0]:02X} {full_packet[1]:02X}")
+                continue
+  
             # Validate message length field
             msg_length = struct.unpack_from("<H", full_packet, 2)[0]
             if msg_length != pkt_len - 4:
