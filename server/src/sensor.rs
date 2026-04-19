@@ -1,8 +1,34 @@
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Timelike, Utc};
+use prost::Message;
 use reqwest::header::{ACCEPT, USER_AGENT};
 use std::sync::Arc;
 use tokio_postgres::Client;
+
+// Manually defined protobuf message structs matching sensor.proto
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SensorData {
+    #[prost(float, tag = "1")]
+    pub timestamp: f32,
+    #[prost(int32, tag = "2")]
+    pub co2: i32,
+    #[prost(float, tag = "3")]
+    pub bme_temperature: f32,
+    #[prost(float, tag = "4")]
+    pub bme_pressure: f32,
+    #[prost(float, tag = "5")]
+    pub bme_altitude: f32,
+    #[prost(float, tag = "6")]
+    pub bme_humidity: f32,
+    #[prost(message, repeated, tag = "7")]
+    pub row: ::prost::alloc::vec::Vec<Row>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Row {
+    #[prost(float, repeated, tag = "1")]
+    pub pixel_temp: ::prost::alloc::vec::Vec<f32>,
+}
 
 #[derive(serde::Deserialize)]
 struct NwsPointsResponse {
@@ -39,6 +65,17 @@ struct NwsValue {
     #[serde(rename = "validTime")]
     valid_time: String,
     value: Option<f64>,
+}
+
+#[derive(serde::Deserialize)]
+struct OpenMeteoResponse {
+    current: OpenMeteoCurrent,
+}
+
+#[derive(serde::Deserialize)]
+struct OpenMeteoCurrent {
+    wind_speed_10m: f64,
+    cloud_cover: f64,
 }
 
 fn parse_valid_time_start(valid_time: &str) -> Option<DateTime<Utc>> {
@@ -97,55 +134,42 @@ fn estimate_net_irradiance_from_sky_cover(sky_cover_percent: f64, longitude: f64
     1000.0 * daylight_factor * cloud_factor
 }
 
-async fn fetch_weather_from_nws(latitude: f64, longitude: f64) -> Result<(f64, f64)> {
+async fn fetch_weather_from_open_meteo(latitude: f64, longitude: f64) -> Result<(f64, f64)> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
 
-    let points_url = format!("https://api.weather.gov/points/{latitude},{longitude}");
+    let url = format!(
+        "https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=wind_speed_10m,cloud_cover&wind_speed_unit=ms"
+    );
 
-    let points = client
-        .get(points_url)
-        .header(ACCEPT, "application/geo+json")
+    let weather = client
+        .get(url)
+        .header(ACCEPT, "application/json")
         .header(USER_AGENT, "sensor-station/0.1 (hackathon project)")
         .send()
         .await?
         .error_for_status()?
-        .json::<NwsPointsResponse>()
+        .json::<OpenMeteoResponse>()
         .await?;
 
-    let grid = client
-        .get(points.properties.forecast_grid_data)
-        .header(ACCEPT, "application/geo+json")
-        .header(USER_AGENT, "sensor-station/0.1 (hackathon project)")
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<NwsGridResponse>()
-        .await?;
+    let wind_speed = weather.current.wind_speed_10m;
+    let net_irradiance = estimate_net_irradiance_from_sky_cover(weather.current.cloud_cover, longitude);
 
-    let wind_raw = pick_latest_or_current_value(&grid.properties.wind_speed.values)
-        .ok_or_else(|| anyhow!("NWS grid response missing windSpeed values"))?;
-    let wind_speed_mps = convert_wind_speed_to_mps(wind_raw, &grid.properties.wind_speed.uom);
-
-    let sky_cover = pick_latest_or_current_value(&grid.properties.sky_cover.values)
-        .ok_or_else(|| anyhow!("NWS grid response missing skyCover values"))?;
-    let net_irradiance = estimate_net_irradiance_from_sky_cover(sky_cover, longitude);
-
-    Ok((net_irradiance, wind_speed_mps))
+    Ok((net_irradiance, wind_speed))
 }
 
 // kg/m^2/s
 fn penman_equation(
-    net_irradiance: f64,            // W/m^2
-    wind_speed: f64,                // m/s
+    net_irradiance: f64, // W/m^2
+    wind_speed: f64,     // m/s
 
-    air_temperature_celsius: f64,   // degrees C
-    water_temperature_celsius: f64, // degrees C
-    ground_temperature_celsius: f64,// degrees C
-    pressure_hpa: f64,              // hPa
-    water_depth_meters: f64,        // m
-    humidity: f64,               // %RH
+    air_temperature_celsius: f64,    // degrees C
+    water_temperature_celsius: f64,  // degrees C
+    ground_temperature_celsius: f64, // degrees C
+    pressure_hpa: f64,               // hPa
+    water_depth_meters: f64,         // m
+    humidity: f64,                   // %RH
 ) -> f64 {
     let pressure_kpa = pressure_hpa / 10.0;
     let air_temperature_kelvin = air_temperature_celsius + 273.15;
@@ -157,9 +181,8 @@ fn penman_equation(
 
     // kPa/K
     // d/dx Tetens equation
-    let derivative_of_saturation_vapor_pressure = 
-        saturation_vapor_pressure * 17.27 * 237.3 
-        / f64::powi(air_temperature_celsius + 237.3, 2);
+    let derivative_of_saturation_vapor_pressure =
+        saturation_vapor_pressure * 17.27 * 237.3 / f64::powi(air_temperature_celsius + 237.3, 2);
 
     let derivative_of_saturation_vapor_pressure_pascals_per_kelvin =
         derivative_of_saturation_vapor_pressure * 1000.0;
@@ -195,8 +218,7 @@ fn penman_equation(
     // assumed to be constant for simplicity because I'm tired and this is just a hackathon
     let latent_heat_of_vaporization = 2.45e6; // J/kg
 
-    let psychometric_constant =
-        (pressure_kpa * 1000.0 * specific_heat_capacity_dry_air)
+    let psychometric_constant = (pressure_kpa * 1000.0 * specific_heat_capacity_dry_air)
         / (latent_heat_of_vaporization * 0.622);
 
     // empirical formula I found online but forgot to write down the link
@@ -211,11 +233,12 @@ fn penman_equation(
     // assumes somewhere roughly between 10cm and 3m depth; I don't have data for deeper
     let deep_ground_temperature_celsius = ground_temperature_celsius - 1.5;
 
-    let heat_gradient = (water_temperature_celsius - ground_temperature_celsius) / water_depth_meters; // K/m
+    let heat_gradient =
+        (water_temperature_celsius - deep_ground_temperature_celsius) / water_depth_meters; // K/m
     let ground_heat_flux = -soil_thermal_conductivity * heat_gradient; // W/m^2
 
     // penman equation
-    ((derivative_of_saturation_vapor_pressure_pascals_per_kelvin * net_irradiance)
+    ((derivative_of_saturation_vapor_pressure_pascals_per_kelvin * (net_irradiance - ground_heat_flux))
         + (density_of_air
             * specific_heat_capacity_of_air
             * vapor_pressure_deficit_pascals
@@ -230,39 +253,57 @@ pub async fn handle_sensor_data(
     db: Arc<Client>,
     most_recent_image: Arc<Mutex<Vec<f32>>>,
     rx: tokio::sync::oneshot::Receiver<()>,
+    sensor_addr: String,
 ) {
     let mut process_sensor_data = async move || {
+        let sensor_addr = sensor_addr.clone();
         let mut f = async move || -> Result<()> {
-            use tokio::net::TcpStream;
             use tokio::io::AsyncReadExt;
+            use tokio::net::TcpStream;
 
-            println!("Connecting to sensor at host.docker.internal:12347...");
-            let mut stream = TcpStream::connect("127.17.0.1:12347").await?;
-            println!("Connected to sensor at host.docker.internal:12347");
+            println!("Connecting to sensor at {sensor_addr}...");
+            let mut stream = TcpStream::connect(&sensor_addr).await?;
+            println!("Connected to sensor");
 
             loop {
                 let mut header = [0u8; 4];
 
                 stream.read_exact(&mut header).await?;
-                let len = u32::from_le_bytes(header) as usize;
-                let mut buf = vec![0u8; len - 4];
+                let len = u32::from_be_bytes(header) as usize;
+
+                if len == 0 || len > 1_000_000 {
+                    return Err(anyhow!("invalid sensor packet length: {len}"));
+                }
+
+                let mut buf = vec![0u8; len];
 
                 stream.read_exact(&mut buf).await?;
 
                 println!("Received sensor data packet of length {len} bytes");
 
-                let timestamp = f32::from_le_bytes(buf[0..4].try_into().unwrap());
+                let sensor_data = SensorData::decode(&buf[..])
+                    .map_err(|e| anyhow!("failed to decode protobuf sensor data: {e}"))?;
 
-                let co2 = f32::from_le_bytes(buf[4..8].try_into().unwrap());
-                let air_temperature = f32::from_le_bytes(buf[8..12].try_into().unwrap());
-                let air_pressure = f32::from_le_bytes(buf[12..16].try_into().unwrap());
-                let _estimated_altitude = f32::from_le_bytes(buf[16..20].try_into().unwrap());
-                let humidity = f32::from_le_bytes(buf[20..24].try_into().unwrap());
+                let sensor_seconds_since_boot = sensor_data.timestamp;
+                let co2 = sensor_data.co2 as f32;
+                let air_temperature = sensor_data.bme_temperature;
+                let air_pressure = sensor_data.bme_pressure;
+                let _estimated_altitude = sensor_data.bme_altitude;
+                let humidity = sensor_data.bme_humidity;
 
-                let thermal_camera_data: Vec<f32> = buf[24..]
-                    .chunks_exact(4)
-                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+                // Flatten the thermal camera rows into a single Vec<f32>
+                let thermal_camera_data: Vec<f32> = sensor_data
+                    .row
+                    .iter()
+                    .flat_map(|row| row.pixel_temp.clone())
                     .collect();
+
+                if thermal_camera_data.len() != 768 {
+                    return Err(anyhow!(
+                        "expected 768 thermal pixels, got {}",
+                        thermal_camera_data.len()
+                    ));
+                }
 
                 let mut guard = most_recent_image.lock().await;
 
@@ -270,19 +311,24 @@ pub async fn handle_sensor_data(
 
                 drop(guard);
 
-                let row = db.query_one("
+                let row = db
+                    .query_one(
+                        "
                     SELECT
                         water_depth,
                         water_bitmap,
                         land_bitmap,
                         ST_Y(location::geometry) as latitude,
-                        ST_X(location::geometry) as longitude,
-                        boot_timestamp
+                        ST_X(location::geometry) as longitude
                     FROM stations
                     WHERE id = 1
-                ", &[]).await?;
+                ",
+                        &[],
+                    )
+                    .await?;
 
-                let water_depth: f64 = row.get(0);
+                let water_depth: f32 = row.get(0);
+                let water_depth: f64 = water_depth as f64;
 
                 use bit_vec::BitVec;
                 let water_bitmap: BitVec = row.get(1);
@@ -294,38 +340,58 @@ pub async fn handle_sensor_data(
                 let latitude: f64 = row.get(3);
                 let longitude: f64 = row.get(4);
 
-                let boot_timestamp: f32 = row.get(5);
-                let timestamp = boot_timestamp + timestamp;
+                let timestamp = DateTime::<Utc>::from_timestamp_millis(
+                    (sensor_seconds_since_boot as f64 * 1000.0).round() as i64,
+                )
+                .ok_or_else(|| anyhow!("invalid sensor timestamp: {sensor_seconds_since_boot}"))?
+                .naive_utc();
 
                 fn find_average_temperature_over_selected_area(
                     thermal_camera_data: &[f32],
                     bitmap: &[u8],
                 ) -> f64 {
-                    let (sum, count) = bitmap.iter().enumerate().map(|(n, b)| -> (f64, usize) {
-                        let mut acc: f64 = 0.0;
-                        let mut count: usize = 0;
+                    let (sum, count) = bitmap
+                        .iter()
+                        .enumerate()
+                        .map(|(n, b)| -> (f64, usize) {
+                            let mut acc: f64 = 0.0;
+                            let mut count: usize = 0;
 
-                        for i in 0..8 {
-                            if b & (0b1000_0000 >> i) != 0 {
-                                acc += thermal_camera_data[(n * 8) + i as usize] as f64;
-                                count += 1;
+                            for i in 0..8 {
+                                if b & (0b1000_0000 >> i) != 0 {
+                                    acc += thermal_camera_data[(n * 8) + i as usize] as f64;
+                                    count += 1;
+                                }
                             }
-                        }
 
-                        (acc, count)
-                    }).fold((0.0, 0), |(acc1, count1), (acc2, count2)| (acc1 + acc2, count1 + count2));
+                            (acc, count)
+                        })
+                        .fold((0.0, 0), |(acc1, count1), (acc2, count2)| {
+                            (acc1 + acc2, count1 + count2)
+                        });
 
-                    sum / count as f64
+                    let res = sum / count as f64;
+
+                    if res.is_nan() {
+                        22.0
+                    } else {
+                        res
+                    }
                 }
 
-                let water_temperature = find_average_temperature_over_selected_area(&thermal_camera_data, &water_bitmap);
-                let ground_temperature = find_average_temperature_over_selected_area(&thermal_camera_data, &land_bitmap);
+                let water_temperature = find_average_temperature_over_selected_area(
+                    &thermal_camera_data,
+                    &water_bitmap,
+                );
+                let ground_temperature =
+                    find_average_temperature_over_selected_area(&thermal_camera_data, &land_bitmap);
 
                 // Pull weather from NWS using station location. If unavailable, keep pipeline alive.
-                let (net_irradiance, wind_speed) = match fetch_weather_from_nws(latitude, longitude).await {
+                let (net_irradiance, wind_speed) = match fetch_weather_from_open_meteo(latitude, longitude).await {
                     Ok((irradiance, wind)) => (irradiance, wind),
-                    Err(err) => {
-                        eprintln!("NWS API fetch failed, using fallback values: {err}");
+                    Err(e) => {
+                        eprintln!("Open-Meteo weather fetch failed ({e}), using fallback values");
+
                         (800.0, 5.0)
                     }
                 };
@@ -333,7 +399,6 @@ pub async fn handle_sensor_data(
                 let rate_of_evaporation = penman_equation(
                     net_irradiance,
                     wind_speed,
-
                     air_temperature as f64,
                     water_temperature,
                     ground_temperature,
@@ -342,35 +407,45 @@ pub async fn handle_sensor_data(
                     humidity as f64,
                 );
 
-                db.execute("
-                    INSERT INTO sensor_data (
+                println!("Calculated rate of evaporation: {rate_of_evaporation} kg/m^2/s");
+
+                db.execute(
+                    "\
+                    INSERT INTO recordings (
+                        station_id,
                         timestamp,
                         co2,
-                        air_temperature,
                         pressure,
                         humidity,
+                        air_temperature,
                         water_temperature,
                         ground_temperature,
+                        wind_speed,
                         net_irradiance,
-                        rate_of_evaporation,
-                        location
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, ST_SetSRID(ST_MakePoint($10, $11), 4326))
-                ", &[
-                    &timestamp,
-                    &co2,
-                    &air_temperature,
-                    &air_pressure,
-                    &humidity,
-                    &water_temperature,
-                    &ground_temperature,
-                    &net_irradiance,
-                    &rate_of_evaporation,
-                ]).await?;
+                        rate_of_evaporation
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ",
+                    &[
+                        &1i32,
+                        &timestamp,
+                        &co2,
+                        &air_pressure,
+                        &humidity,
+                        &air_temperature,
+                        &(water_temperature as f32),
+                        &(ground_temperature as f32),
+                        &(wind_speed as f32),
+                        &(net_irradiance as f32),
+                        &(rate_of_evaporation as f32),
+                    ],
+                )
+                .await?;
 
                 println!("Inserted sensor data into database with timestamp {timestamp}");
             }
         };
 
+        println!("Connecting to sensor for first time...");
         while let Err(e) = f().await {
             eprintln!("Error processing sensor data: {e}");
             println!("Attempting to reconnect to sensor in 5 seconds...");

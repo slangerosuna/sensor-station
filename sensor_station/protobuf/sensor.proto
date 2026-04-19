@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+message Row {
+  repeated float pixel_temp = 1;
+}
+
+message SensorData {
+  float timestamp = 1;
+  int32 co2 = 2;
+  float bme_temperature = 3;
+  float bme_pressure = 4;
+  float bme_altitude = 5;
+  float bme_humidity = 6;
+  repeated Row row = 7;
+}

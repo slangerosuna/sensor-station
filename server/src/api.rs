@@ -31,7 +31,10 @@ pub struct ApiState {
 
 impl ApiState {
     pub fn new(db: Arc<Client>, most_recent_image: Arc<Mutex<Vec<f32>>>) -> Self {
-        Self { db, most_recent_image }
+        Self {
+            db,
+            most_recent_image,
+        }
     }
 }
 
@@ -39,7 +42,10 @@ pub fn routes() -> Router<ApiState> {
     Router::new()
         .route("/health", get(|| async { "OK" }))
         .route("/station", get(get_station).post(update_station))
-        .route("/station/bitmap", get(get_station_bitmap).post(update_station_bitmap))
+        .route(
+            "/station/bitmap",
+            get(get_station_bitmap).post(update_station_bitmap),
+        )
         .route("/recordings", get(get_recordings))
         .route("/most_recent_image", get(get_most_recent_image))
 }
@@ -259,22 +265,16 @@ async fn get_station_bitmap(
             "water".to_owned(),
         ),
         _ => {
-            return Err(into_http_error(
-                "surface must be either 'land' or 'water'",
-            ));
+            return Err(into_http_error("surface must be either 'land' or 'water'"));
         }
     };
 
-    let row = state
-        .db
-        .query_one(sql, &[&STATION_ID])
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-        })?;
+    let row = state.db.query_one(sql, &[&STATION_ID]).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+    })?;
 
     let bitmap: bit_vec::BitVec = row.get(0);
 
@@ -315,9 +315,7 @@ async fn update_station_bitmap(
             "water".to_owned(),
         ),
         _ => {
-            return Err(into_http_error(
-                "surface must be either 'land' or 'water'",
-            ));
+            return Err(into_http_error("surface must be either 'land' or 'water'"));
         }
     };
 
@@ -350,7 +348,7 @@ async fn get_recordings(
 
     let requested_columns = parse_requested_columns(&query.columns).map_err(into_http_error)?;
 
-    use chrono::{NaiveDateTime, DateTime, Utc};
+    use chrono::{DateTime, NaiveDateTime, Utc};
     let start_dt = DateTime::parse_from_rfc3339(&query.start)
         .map_err(|e| into_http_error(format!("invalid start timestamp: {e}")))?
         .with_timezone(&Utc)

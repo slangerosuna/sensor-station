@@ -4,7 +4,6 @@ use rustls::{ClientConfig, RootCertStore, pki_types::CertificateDer};
 use rustls_native_certs::load_native_certs;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use std::time::Duration;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
 mod api;
@@ -95,8 +94,8 @@ async fn main() -> Result<()> {
     };
 
     tokio::join!(
-        axum::serve(listener, router).with_graceful_shutdown(shutdown_signal),
-        sensor::handle_sensor_data(client, most_recent_image, rx),
+        sensor::handle_sensor_data(client, most_recent_image, rx, config.sensor_addr),
+        axum::serve(listener, router).with_graceful_shutdown(shutdown_signal)
     );
 
     Ok(())
